@@ -23,3 +23,6 @@ void start() {
     return 0;
   }
   
+
+  gcc -fno-stack-protector -z execstack -no-pie -o rop_exploit rop_exploit.c
+objdump -d rop_exploit | grep "ret"

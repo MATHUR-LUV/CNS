@@ -14,3 +14,6 @@ int main() {
 
     return 0;
 }
+
+gcc -o use_after_free use_after_free.c -z execstack -no-pie
+./use_after_free

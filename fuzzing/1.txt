@@ -1,0 +1,8 @@
+sudo apt-get install afl
+afl-gcc -o fuzz_target vulnerable_program.c
+mkdir input_dir
+mkdir output_dir
+echo "test" > input_dir/testcase
+
+
+afl-fuzz -i input_dir -o output_dir -- ./fuzz_target @@
