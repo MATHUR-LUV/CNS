@@ -1,0 +1,16 @@
+openssl genpkey -algorithm RSA -out private.key -pkeyopt rsa_keygen_bits:2048
+openssl ecparam -name secp256k1 -genkey -noout -out ec_private.key
+openssl pkey -in private.key -text -noout
+openssl req -new -key private.key -out request.csr
+openssl req -in request.csr -noout -text
+openssl req -x509 -key private.key -out certificate.crt -days 365
+openssl x509 -in certificate.crt -noout -text
+openssl genpkey -algorithm RSA -out ca.key
+openssl req -x509 -new -key ca.key -out ca.crt -days 3650
+openssl x509 -req -in request.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out signed.crt -days 365
+openssl verify -CAfile ca.crt signed.crt
+openssl pkcs12 -export -inkey private.key -in certificate.crt -out certificate.pfx
+openssl x509 -inform der -in certificate.der -out certificate.pem
+openssl pkey -in private.key -check
+openssl x509 -in certificate.crt -noout -text
+openssl verify -CAfile ca.crt certificate.crt

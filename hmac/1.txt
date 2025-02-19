@@ -1,0 +1,84 @@
+openssl genpkey -genparam -algorithm dh -pkeyopt
+dh_rfc5114:3 -out param.pem
+
+openssl genpkey -paramfile param.pem -out
+alice_pkey.pem
+
+openssl pkey -in alice_pkey.pem -pubout -out
+alice_pubkey.pem
+
+echo &quot;This is a test message.&quot; &gt; plaintext.txt
+
+openssl genpkey -paramfile param.pem -out
+ephpkey.pem
+
+openssl pkey -in ephpkey.pem -pubout -out
+ephpubkey.pem
+
+openssl pkeyutl -derive -inkey ephpkey.pem -
+peerkey alice_pubkey.pem -out shared_secret.bin
+
+openssl dgst -sha256 -binary shared_secret.bin &gt;
+hash.bin
+
+head -c 16 hash.bin &gt; k1.bin
+tail -c 16 hash.bin &gt; k2.bin
+
+openssl rand 16 &gt; iv.bin
+
+openssl enc -aes-128-cbc -in plaintext.txt -out
+ciphertext.bin -K `xxd -p k1.bin` -iv `xxd -p iv.bin`
+
+cat iv.bin ciphertext.bin | openssl dgst -sha256 -
+hmac `xxd -p k2.bin` -binary &gt; tag.bin
+
+openssl enc -base64 -in iv.bin -out iv.b64
+openssl enc -base64 -in ciphertext.bin -out
+ciphertext.b64
+openssl enc -base64 -in tag.bin -out tag.b64
+
+cat ephpubkey.pem &gt; final_ciphertext.pem
+echo &quot;-----BEGIN AES-128-CBC IV-----&quot; &gt;&gt;
+final_ciphertext.pem
+cat iv.b64 &gt;&gt; final_ciphertext.pem
+echo &quot;-----END AES-128-CBC IV-----&quot; &gt;&gt;
+final_ciphertext.pem
+echo &quot;-----BEGIN AES-128-CBC CIPHERTEXT-----&quot;
+&gt;&gt; final_ciphertext.pem
+cat ciphertext.b64 &gt;&gt; final_ciphertext.pem
+
+echo &quot;-----END AES-128-CBC CIPHERTEXT-----&quot; &gt;&gt;
+final_ciphertext.pem
+echo &quot;-----BEGIN SHA256-HMAC TAG-----&quot; &gt;&gt;
+final_ciphertext.pem
+cat tag.b64 &gt;&gt; final_ciphertext.pem
+echo &quot;-----END SHA256-HMAC TAG-----&quot; &gt;&gt;
+final_ciphertext.pem
+
+openssl enc -d -base64 -in iv.b64 -out iv.bin
+openssl enc -d -base64 -in ciphertext.b64 -out
+ciphertext.bin
+openssl enc -d -base64 -in tag.b64 -out tag.bin
+
+openssl pkeyutl -derive -inkey alice_pkey.pem -
+peerkey ephpubkey.pem -out shared_secret.bin
+
+openssl dgst -sha256 -binary shared_secret.bin &gt;
+hash.bin
+
+head -c 16 hash.bin &gt; k1.bin
+tail -c 16 hash.bin &gt; k2.bin
+
+cat iv.bin ciphertext.bin | openssl dgst -sha256 -
+hmac `xxd -p k2.bin` -binary &gt; computed_tag.bin
+
+if cmp -s computed_tag.bin tag.bin; then
+echo &quot;HMAC verification passed. Proceeding with
+decryption...&quot;
+else
+echo &quot;HMAC verification failed! Aborting.&quot;
+exit 1
+fi
+
+openssl enc -d -aes-128-cbc -in ciphertext.bin -out
+decrypted.txt -K `xxd -p k1.bin` -iv `xxd -p iv.bin`

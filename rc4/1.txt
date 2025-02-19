@@ -1,0 +1,87 @@
+Key generation and initialization vector generation:
+key=$(openssl rand -hex 13)
+m0=$(openssl rand -hex 1)
+
+&gt; iv_01FF.txt
+
+for x in {0..255}; do
+iv=&quot;01FF$(printf &quot;%02x&quot; $x)&quot;
+combined_key=&quot;${iv:0:8}$key&quot;
+
+ciphertext=$(echo -n &quot;$m0&quot; | openssl enc -rc4 -K
+&quot;$combined_key&quot; -provider legacy | xxd -p -c 256)
+
+if [ $? -ne 0 ]; then
+echo &quot;Error encrypting with IV: $iv&quot;
+continue
+fi
+
+echo &quot;$iv $ciphertext&quot; &gt;&gt; iv_01FF.txt
+echo &quot;Processed IV: $iv&quot;
+done
+
+echo &quot;Encryption process complete. Check
+iv_01FF.txt for results.&quot;
+
+Attack Script:
+import os
+import subprocess
+from collections import Counter
+
+def analyze_ciphertexts(ciphertexts):
+freq_counts = Counter(c[1] for c in ciphertexts)
+most_common =
+freq_counts.most_common(1)[0][0]
+
+guessed_m0 = int(most_common, 16) - 2
+guessed_m0 = guessed_m0 % 256
+
+print(f&quot;Guessed m[0]: {format(guessed_m0,
+&#39;02X&#39;)}&quot;)
+return guessed_m0
+
+def recover_key(ciphertexts_03FFx, guessed_m0):
+k0_counts = Counter()
+
+for iv, c0 in ciphertexts_03FFx:
+x = int(iv[-2:], 16)
+c0 = int(c0, 16)
+k0_guess = (c0 ^ guessed_m0) - x - 6
+k0_guess = k0_guess % 256
+k0_counts[k0_guess] += 1
+
+k0 = k0_counts.most_common(1)[0][0]
+print(f&quot;Recovered k[0]: {format(k0, &#39;02X&#39;)}&quot;)
+return k0
+
+def recover_k1(ciphertexts_04FFx, guessed_m0,
+k0):
+k1_counts = Counter()
+
+for iv, c0 in ciphertexts_04FFx:
+x = int(iv[-2:], 16)
+c0 = int(c0, 16)
+k1_guess = (c0 ^ guessed_m0) - x - 10 - k0
+k1_guess = k1_guess % 256
+k1_counts[k1_guess] += 1
+
+k1 = k1_counts.most_common(1)[0][0]
+print(f&quot;Recovered k[1]: {format(k1, &#39;02X&#39;)}&quot;)
+return k1
+
+def main():
+ciphertexts_01FFx = []
+ciphertexts_03FFx = []
+ciphertexts_04FFx = []
+
+guessed_m0 =
+analyze_ciphertexts(ciphertexts_01FFx)
+k0 = recover_key(ciphertexts_03FFx,
+guessed_m0)
+k1 = recover_k1(ciphertexts_04FFx, guessed_m0,
+k0)
+
+print(&quot;Attack simulation completed.&quot;)
+
+if __name__ == &quot;__main__&quot;:
+main()
