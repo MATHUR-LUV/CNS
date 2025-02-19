@@ -1,0 +1,84 @@
+# Generate DH parameters using RFC 5114 group 3
+openssl genpkey -genparam -algorithm dh -pkeyopt dh_rfc5114:3 -out param.pem
+
+# Generate Alice's private key
+openssl genpkey -paramfile param.pem -out alice_pkey.pem
+
+# Extract Alice's public key
+openssl pkey -in alice_pkey.pem -pubout -out alice_pubkey.pem
+
+# Create a plaintext message
+echo "This is a test message." > plaintext.txt
+
+# Generate ephemeral key pair
+openssl genpkey -paramfile param.pem -out ephpkey.pem
+
+# Extract ephemeral public key
+openssl pkey -in ephpkey.pem -pubout -out ephpubkey.pem
+
+# Derive shared secret
+openssl pkeyutl -derive -inkey ephpkey.pem -peerkey alice_pubkey.pem -out shared_secret.bin
+
+# Hash the shared secret
+openssl dgst -sha256 -binary shared_secret.bin > hash.bin
+
+# Split the hash into two 16-byte keys
+head -c 16 hash.bin > k1.bin
+tail -c 16 hash.bin > k2.bin
+
+# Generate a random IV
+openssl rand 16 > iv.bin
+
+# Encrypt the plaintext using AES-128-CBC
+openssl enc -aes-128-cbc -in plaintext.txt -out ciphertext.bin -K `xxd -p k1.bin` -iv `xxd -p iv.bin`
+
+# Generate HMAC for authentication
+cat iv.bin ciphertext.bin | openssl dgst -sha256 -hmac `xxd -p k2.bin` -binary > tag.bin
+
+# Encode files to Base64
+openssl enc -base64 -in iv.bin -out iv.b64
+openssl enc -base64 -in ciphertext.bin -out ciphertext.b64
+openssl enc -base64 -in tag.bin -out tag.b64
+
+# Create the final ciphertext file
+cat ephpubkey.pem > final_ciphertext.pem
+echo "-----BEGIN AES-128-CBC IV-----" >> final_ciphertext.pem
+cat iv.b64 >> final_ciphertext.pem
+echo "-----END AES-128-CBC IV-----" >> final_ciphertext.pem
+echo "-----BEGIN AES-128-CBC CIPHERTEXT-----" >> final_ciphertext.pem
+cat ciphertext.b64 >> final_ciphertext.pem
+echo "-----END AES-128-CBC CIPHERTEXT-----" >> final_ciphertext.pem
+echo "-----BEGIN SHA256-HMAC TAG-----" >> final_ciphertext.pem
+cat tag.b64 >> final_ciphertext.pem
+echo "-----END SHA256-HMAC TAG-----" >> final_ciphertext.pem
+
+# Decryption Process
+
+# Decode Base64 files
+openssl enc -d -base64 -in iv.b64 -out iv.bin
+openssl enc -d -base64 -in ciphertext.b64 -out ciphertext.bin
+openssl enc -d -base64 -in tag.b64 -out tag.bin
+
+# Derive shared secret again for decryption
+openssl pkeyutl -derive -inkey alice_pkey.pem -peerkey ephpubkey.pem -out shared_secret.bin
+
+# Hash the shared secret again
+openssl dgst -sha256 -binary shared_secret.bin > hash.bin
+
+# Split hash into two keys
+head -c 16 hash.bin > k1.bin
+tail -c 16 hash.bin > k2.bin
+
+# Compute HMAC for verification
+cat iv.bin ciphertext.bin | openssl dgst -sha256 -hmac `xxd -p k2.bin` -binary > computed_tag.bin
+
+# Verify HMAC
+if cmp -s computed_tag.bin tag.bin; then
+    echo "HMAC verification passed. Proceeding with decryption..."
+else
+    echo "HMAC verification failed! Aborting."
+    exit 1
+fi
+
+# Decrypt the ciphertext
+openssl enc -d -aes-128-cbc -in ciphertext.bin -out decrypted.txt -K `xxd -p k1.bin` -iv `xxd -p iv.bin`

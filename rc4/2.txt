@@ -1,0 +1,102 @@
+# Key Generation and Initialization Vector (IV) Generation
+
+# Generate a random encryption key (13 bytes in hex)
+key=$(openssl rand -hex 13)
+
+# Generate a random message (1 byte in hex)
+m0=$(openssl rand -hex 1)
+
+# Output file for IVs and corresponding ciphertexts
+> iv_01FF.txt
+
+# Loop through all possible byte values (0 to 255)
+for x in {0..255}; do
+    # Construct the IV with a fixed prefix and variable last byte
+    iv="01FF$(printf "%02x" $x)"
+    
+    # Create the combined key using part of IV and the main key
+    combined_key="${iv:0:8}$key"
+    
+    # Encrypt the message using RC4 with OpenSSL and output as hex
+    ciphertext=$(echo -n "$m0" | openssl enc -rc4 -K "$combined_key" -provider legacy | xxd -p -c 256)
+    
+    # Check for encryption errors
+    if [ $? -ne 0 ]; then
+        echo "Error encrypting with IV: $iv"
+        continue
+    fi
+    
+    # Store the IV and corresponding ciphertext in a file
+    echo "$iv $ciphertext" >> iv_01FF.txt
+    echo "Processed IV: $iv"
+done
+
+echo "Encryption process complete. Check iv_01FF.txt for results."
+
+
+# Attack Script in Python
+import os
+import subprocess
+from collections import Counter
+
+def analyze_ciphertexts(ciphertexts):
+    """Analyze ciphertexts to determine the most frequent first byte."""
+    freq_counts = Counter(c[1] for c in ciphertexts)
+    most_common = freq_counts.most_common(1)[0][0]
+    
+    # Guess the first byte of the plaintext (m[0])
+    guessed_m0 = int(most_common, 16) - 2
+    guessed_m0 = guessed_m0 % 256
+    
+    print(f"Guessed m[0]: {format(guessed_m0, '02X')}")
+    return guessed_m0
+
+def recover_key(ciphertexts_03FFx, guessed_m0):
+    """Recover the first byte of the key (k[0]) using the ciphertexts."""
+    k0_counts = Counter()
+    
+    for iv, c0 in ciphertexts_03FFx:
+        x = int(iv[-2:], 16)
+        c0 = int(c0, 16)
+        k0_guess = (c0 ^ guessed_m0) - x - 6
+        k0_guess = k0_guess % 256
+        k0_counts[k0_guess] += 1
+    
+    # Determine the most likely k[0]
+    k0 = k0_counts.most_common(1)[0][0]
+    print(f"Recovered k[0]: {format(k0, '02X')}")
+    return k0
+
+def recover_k1(ciphertexts_04FFx, guessed_m0, k0):
+    """Recover the second byte of the key (k[1]) using the ciphertexts."""
+    k1_counts = Counter()
+    
+    for iv, c0 in ciphertexts_04FFx:
+        x = int(iv[-2:], 16)
+        c0 = int(c0, 16)
+        k1_guess = (c0 ^ guessed_m0) - x - 10 - k0
+        k1_guess = k1_guess % 256
+        k1_counts[k1_guess] += 1
+    
+    # Determine the most likely k[1]
+    k1 = k1_counts.most_common(1)[0][0]
+    print(f"Recovered k[1]: {format(k1, '02X')}")
+    return k1
+
+def main():
+    """Main function to execute the attack."""
+    ciphertexts_01FFx = []
+    ciphertexts_03FFx = []
+    ciphertexts_04FFx = []
+    
+    # Analyze ciphertexts to guess m[0]
+    guessed_m0 = analyze_ciphertexts(ciphertexts_01FFx)
+    
+    # Recover key bytes
+    k0 = recover_key(ciphertexts_03FFx, guessed_m0)
+    k1 = recover_k1(ciphertexts_04FFx, guessed_m0, k0)
+    
+    print("Attack simulation completed.")
+
+if __name__ == "__main__":
+    main()

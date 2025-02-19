@@ -1,0 +1,39 @@
+# Generate a random 16-byte key in hex format
+openssl rand -hex 16 > key.hex
+
+# Create a 16-byte header filled with null bytes
+printf '\x00%.0s' {1..16} > head.dat
+
+# Create message files
+echo -n "What about joining me tomorrow for dinner?" > mess1.dat
+echo -n "Oops, Sorry, I just remember that I have a meeting very soon in the morning." > mess2.dat
+
+# Concatenate header and messages
+cat head.dat mess1.dat > message1_with_header.dat
+openssl enc -aes-128-cbc -K $(cat key.hex) -iv 00000000000000000000000000000000 -in message1_with_header.dat -out message1_mac_temp.dat
+tail -c 16 message1_mac_temp.dat > tag1.dat
+
+cat head.dat mess2.dat > message2_with_header.dat
+openssl enc -aes-128-cbc -K $(cat key.hex) -iv 00000000000000000000000000000000 -in message2_with_header.dat -out message2_mac_temp.dat
+tail -c 16 message2_mac_temp.dat > tag2.dat
+
+# Encrypt message1_with_header.dat
+openssl enc -aes-128-cbc -K $(cat key.hex) -iv 00000000000000000000000000000000 -in message1_with_header.dat -out cipher1.dat
+
+# Decrypt cipher1.dat without padding
+openssl enc -d -aes-128-cbc -K $(cat key.hex) -iv 00000000000000000000000000000000 -nopad -in cipher1.dat -out padded1.dat
+
+# Display decrypted output in hex format
+xxd padded1.dat
+
+# Create forgery by combining decrypted data, MAC tag, and second message
+cat padded1.dat >> forgery.dat
+cat tag1.dat >> forgery.dat
+cat mess2.dat >> forgery.dat
+
+# Encrypt the forged data to generate a new MAC
+iopenssl enc -aes-128-cbc -K $(cat key.hex) -iv 00000000000000000000000000000000 -in forgery.dat -out forgery_mac.dat
+tail -c 16 forgery_mac.dat > tag_forged.dat
+
+# Compare the generated MAC with tag2
+cmp tag_forged.dat tag2.dat && echo "Forgery successful! Tags match!" || echo "Forgery failed!"
